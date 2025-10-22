@@ -1,0 +1,25 @@
+[ req ]
+default_bits        = 2048
+prompt              = no
+default_md          = sha256
+req_extensions      = v3_req
+distinguished_name  = dn_req
+
+[ dn_req ]
+# Distinguished Name Fields - Hardcoded values remain
+C  = US
+ST = MA
+L  = Boston
+O  = Trustees of Boston College
+OU = BC
+emailAddress = itsstaff.ops@bc.edu
+
+# Common Name - Will be read from the environment variable $fqdn
+CN = $ENV::fqdn
+
+[ v3_req ]
+# Extensions for the CSR
+subjectAltName = @alt_names
+
+[ alt_names ]
+# The SAN list will be injected here by the script.
