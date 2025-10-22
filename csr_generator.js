@@ -20,42 +20,43 @@ function downloadFile(filename, content, type) {
 function generateCSR() {
     const statusElement = document.getElementById('status');
     statusElement.textContent = "Processing... Generating 2048-bit RSA key. This may take a moment.";
+    statusElement.style.color = 'orange';
 
     const fqdn = document.getElementById('fqdn').value.trim();
     const sansInput = document.getElementById('sans').value.trim();
-    const email = document.getElementById('email').value.trim();
+    // Note: The user-provided email input is no longer used, 
+    // as it is now hardcoded as per the .cnf file.
 
     if (!fqdn) {
         statusElement.textContent = "Error: Please enter the Fully Qualified Domain Name (FQDN).";
+        statusElement.style.color = 'red';
         return;
     }
 
     try {
         // --- 1. Generate RSA Key Pair (Asynchronously) ---
-        // This is the most CPU-intensive step.
         const kp = rsa.generateKeypair(2048);
         const privateKey = kp.prvKey;
         const publicKey = kp.pubKey;
-        
-        // Convert to PEM format
         const privateKeyPEM = rsa.KEYUTIL.getPEM(privateKey, 'PKCS8PRV');
         
-        // --- 2. Build Subject DN and Extensions ---
-        
-        // Define Subject DN (Common Name, Email)
+        // --- 2. Build Subject DN using Hardcoded Values from CSR cfg ---
+        // This array now matches the fields in your [ dn_req ] section
         const subject = [
-            { name: 'commonName', value: fqdn },
+            // Hardcoded DN Fields
+            { name: 'countryName', value: 'US' },     // C = US
+            { name: 'stateOrProvinceName', value: 'MA' }, // ST = MA
+            { name: 'localityName', value: 'Boston' },   // L = Boston
+            { name: 'organizationName', value: 'Trustees of Boston College' }, // O = Trustees of Boston College
+            { name: 'organizationalUnitName', value: 'BC' }, // OU = BC
+            { name: 'emailAddress', value: 'itsstaff.ops@bc.edu' }, // Hardcoded Email Address
+
+            // Common Name (CN) - Read from user input, matching CN = $ENV::fqdn
+            { name: 'commonName', value: fqdn }, 
         ];
 
-        // Add email if provided
-        if (email) {
-            subject.push({ name: 'emailAddress', value: email });
-        }
-
         // --- 3. Build Subject Alternative Names (SANs) Extension ---
-        
-        // Start the SAN list with the FQDN (CN) itself
-        const sanList = [{ dns: fqdn }];
+        const sanList = [{ dns: fqdn }]; // CN is always the first SAN
         
         if (sansInput) {
             const sansArray = sansInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -64,7 +65,6 @@ function generateCSR() {
             });
         }
 
-        // Define the X.509 extensions for the CSR
         const extensions = [
             // The Subject Alternative Name (SAN) extension
             { 
@@ -76,16 +76,16 @@ function generateCSR() {
         // --- 4. Create CSR Object ---
         const csr = new rsa.KJUR.asn1.csr.CertificationRequest({
             subject: subject,
-            extreq: extensions, // Attach the SANs
+            extreq: extensions, 
             sigalg: 'SHA256withRSA',
             sbjpubkey: publicKey,
-            privateKey: privateKey // Sign the CSR with the private key
+            privateKey: privateKey
         });
 
         // --- 5. Finalize and Get PEM ---
         const csrPEM = csr.getPEMString();
         
-        // --- 6. Filename Generation (Replicating your bash script logic) ---
+        // --- 6. Filename Generation ---
         const baseName = fqdn.split('.')[0];
         const dateString = new Date().getFullYear();
         const keyFileName = `${baseName}_${dateString}.key`;
