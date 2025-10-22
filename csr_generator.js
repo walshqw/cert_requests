@@ -37,13 +37,15 @@ function generateCSR() {
     try {
         // --- 1. Generate RSA Key Pair (Synchronous) ---
         
-        // Instantiate and generate the 2048-bit RSA key pair using KJUR.crypto.RSAKey
-        const rsaKey = new KJUR.crypto.RSAKey({});
-        rsaKey.generate(2048); 
+        // **FIXED:** Use the KEYUTIL object from the global namespace for key generation
+        // This is the most reliable way to generate keys with the jsrsasign library.
+        const rsaKey = KEYUTIL.generateKeypair('RSA', 2048);
+        
+        // Extract the private key object from the generated pair
+        const privateKeyObj = rsaKey.prvKey;
         
         // Get the private key and convert it to PKCS#8 PEM format
-        // This is the file the user MUST keep safe.
-        const privateKeyPEM = KJUR.asn1.ASN1Util.getPEM(rsaKey, 'PKCS8PRV');
+        const privateKeyPEM = KEYUTIL.getPEM(privateKeyObj, 'PKCS8PRV');
         
         // --- 2. Build Subject DN using Hardcoded Values from CSR cfg ---
         // This array matches the fields in your [ dn_req ] section
@@ -80,12 +82,13 @@ function generateCSR() {
         ];
 
         // --- 4. Create CSR Object ---
+        // Use the KJUR namespace for the CertificationRequest class
         const csr = new KJUR.asn1.csr.CertificationRequest({
             subject: subject,
             extreq: extensions, 
             sigalg: 'SHA256withRSA',
-            sbjpubkey: rsaKey, // Use the generated RSAKey object for the public key
-            privateKey: rsaKey // Use the generated RSAKey object to sign the CSR
+            sbjpubkey: privateKeyObj, // Use the generated key object for the public key
+            privateKey: privateKeyObj // Use the generated key object to sign the CSR
         });
 
         // --- 5. Finalize and Get PEM ---
@@ -107,7 +110,12 @@ function generateCSR() {
         
     } catch (e) {
         console.error("CSR Generation Error:", e);
-        statusElement.textContent = `An error occurred during generation: ${e.message}. Please check the browser console for technical details.`;
+        // Fallback check to guide the user if library objects are still missing
+        if (typeof KJUR === 'undefined' || typeof KEYUTIL === 'undefined') {
+             statusElement.textContent = `CRITICAL ERROR: Cryptography library failed to load. Please try a hard refresh. (Check console for '${e.message}')`;
+        } else {
+            statusElement.textContent = `An error occurred during generation: ${e.message}. Please check the browser console for technical details.`;
+        }
         statusElement.style.color = 'red';
     }
 }
