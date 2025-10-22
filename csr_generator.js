@@ -18,15 +18,16 @@ function downloadFile(filename, content, type) {
  * The main function to generate the CSR and Private Key.
  */
 function generateCSR() {
+    // Get status element and display initial message
     const statusElement = document.getElementById('status');
-    statusElement.textContent = "Processing... Generating 2048-bit RSA key. This may take a moment.";
+    statusElement.textContent = "Processing... Generating 2048-bit RSA key (this may take a few seconds).";
     statusElement.style.color = 'orange';
 
+    // Get user inputs
     const fqdn = document.getElementById('fqdn').value.trim();
     const sansInput = document.getElementById('sans').value.trim();
-    // Note: The user-provided email input is no longer used, 
-    // as it is now hardcoded as per the .cnf file.
 
+    // Input validation
     if (!fqdn) {
         statusElement.textContent = "Error: Please enter the Fully Qualified Domain Name (FQDN).";
         statusElement.style.color = 'red';
@@ -34,29 +35,34 @@ function generateCSR() {
     }
 
     try {
-        // --- 1. Generate RSA Key Pair (Asynchronously) ---
-        const kp = rsa.generateKeypair(2048);
-        const privateKey = kp.prvKey;
-        const publicKey = kp.pubKey;
-        const privateKeyPEM = rsa.KEYUTIL.getPEM(privateKey, 'PKCS8PRV');
+        // --- 1. Generate RSA Key Pair (Synchronous) ---
+        
+        // Instantiate and generate the 2048-bit RSA key pair using KJUR.crypto.RSAKey
+        const rsaKey = new KJUR.crypto.RSAKey({});
+        rsaKey.generate(2048); 
+        
+        // Get the private key and convert it to PKCS#8 PEM format
+        // This is the file the user MUST keep safe.
+        const privateKeyPEM = KJUR.asn1.ASN1Util.getPEM(rsaKey, 'PKCS8PRV');
         
         // --- 2. Build Subject DN using Hardcoded Values from CSR cfg ---
-        // This array now matches the fields in your [ dn_req ] section
+        // This array matches the fields in your [ dn_req ] section
         const subject = [
-            // Hardcoded DN Fields
-            { name: 'countryName', value: 'US' },     // C = US
-            { name: 'stateOrProvinceName', value: 'MA' }, // ST = MA
-            { name: 'localityName', value: 'Boston' },   // L = Boston
-            { name: 'organizationName', value: 'Trustees of Boston College' }, // O = Trustees of Boston College
-            { name: 'organizationalUnitName', value: 'BC' }, // OU = BC
-            { name: 'emailAddress', value: 'itsstaff.ops@bc.edu' }, // Hardcoded Email Address
+            // Hardcoded DN Fields from your csr.cnf
+            { name: 'countryName', value: 'US' },
+            { name: 'stateOrProvinceName', value: 'MA' },
+            { name: 'localityName', value: 'Boston' },
+            { name: 'organizationName', value: 'Trustees of Boston College' },
+            { name: 'organizationalUnitName', value: 'BC' },
+            { name: 'emailAddress', value: 'itsstaff.ops@bc.edu' },
 
-            // Common Name (CN) - Read from user input, matching CN = $ENV::fqdn
+            // Common Name (CN) - Read from user input
             { name: 'commonName', value: fqdn }, 
         ];
 
         // --- 3. Build Subject Alternative Names (SANs) Extension ---
-        const sanList = [{ dns: fqdn }]; // CN is always the first SAN
+        // The Common Name (CN) is always the first SAN
+        const sanList = [{ dns: fqdn }]; 
         
         if (sansInput) {
             const sansArray = sansInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -65,8 +71,8 @@ function generateCSR() {
             });
         }
 
+        // Define the X.509 extensions for the CSR
         const extensions = [
-            // The Subject Alternative Name (SAN) extension
             { 
                 extname: 'subjectAltName', 
                 array: sanList 
@@ -74,18 +80,19 @@ function generateCSR() {
         ];
 
         // --- 4. Create CSR Object ---
-        const csr = new rsa.KJUR.asn1.csr.CertificationRequest({
+        const csr = new KJUR.asn1.csr.CertificationRequest({
             subject: subject,
             extreq: extensions, 
             sigalg: 'SHA256withRSA',
-            sbjpubkey: publicKey,
-            privateKey: privateKey
+            sbjpubkey: rsaKey, // Use the generated RSAKey object for the public key
+            privateKey: rsaKey // Use the generated RSAKey object to sign the CSR
         });
 
         // --- 5. Finalize and Get PEM ---
         const csrPEM = csr.getPEMString();
         
         // --- 6. Filename Generation ---
+        // Match the naming convention from your bash script: baseName_year
         const baseName = fqdn.split('.')[0];
         const dateString = new Date().getFullYear();
         const keyFileName = `${baseName}_${dateString}.key`;
@@ -100,7 +107,7 @@ function generateCSR() {
         
     } catch (e) {
         console.error("CSR Generation Error:", e);
-        statusElement.textContent = `An error occurred during generation: ${e.message}. Check the browser console for details.`;
+        statusElement.textContent = `An error occurred during generation: ${e.message}. Please check the browser console for technical details.`;
         statusElement.style.color = 'red';
     }
 }
