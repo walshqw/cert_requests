@@ -98,8 +98,12 @@ async function generateCSR() {
 
         // --- 4. Sign the CSR ---
         statusElement.textContent = "Step 4/5: Signing the CSR with the private key...";
+        
+        // **FIX:** Explicitly set worker to 0 or null to force synchronous signing.
         await new Promise((resolve, reject) => {
-            csr.sign(keys.privateKey, forge.md.sha256.create(), (err) => {
+            // Note: Setting the worker count to 0 prevents asynchronous worker creation.
+            // The signing operation will then execute synchronously on the main thread.
+            csr.sign(keys.privateKey, forge.md.sha256.create(), { worker: 0 }, (err) => { 
                 if (err) {
                     reject(err);
                 } else {
