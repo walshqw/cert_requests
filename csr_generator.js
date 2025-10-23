@@ -98,7 +98,7 @@ async function generateCSR() {
         csrTextarea.focus();
         csrTextarea.select(); // Auto-select the text for easy copying
 
-        statusElement.textContent = "✅ Success! Key file downloaded. Copy the CSR text below. KEEP THE .KEY FILE SAFE!";
+        statusElement.textContent = "✅ Success! Key file downloaded. Copy the CSR text below. KEEP THE .KEY FILE SAFE!  It should be saved on the server with the certificate and deleted from your computer!";
         statusElement.style.color = 'green';
         
     } catch (e) {
