@@ -71,10 +71,13 @@ async function generateCSR() {
         // Initialize OpenSSL Wasm module
         // The 'OpenSSL' object is exposed globally by the CDN script in index.html
         if (typeof OpenSSL === 'undefined') {
-            throw new Error("OpenSSL Wasm library failed to load.");
+        statusElement.textContent = "CRITICAL ERROR: OpenSSL Wasm library failed to load its main object. Please ensure the CDN link in index.html is correct and try a hard refresh.";
+        statusElement.style.color = 'red';
+        return; // Exit if the global object is not present
         }
         
-        const openssl = await OpenSSL.load(); // Load the Wasm module
+        // Now, load the Wasm module itself
+        const openssl = await OpenSSL.load();
 
         // 1. Build the dynamic config file content
         const configContent = buildOpenSSLConfig(fqdn, sansInput);
