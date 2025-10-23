@@ -1,9 +1,4 @@
-/**
- * Helper function to trigger a file download.
- * @param {string} filename - The name of the file to save.
- * @param {string} content - The content of the file (e.g., PEM string).
- * @param {string} type - The MIME type.
- */
+// Helper function to trigger a file download (same as before)
 function downloadFile(filename, content, type) {
     const blob = new Blob([content], { type: type });
     const a = document.createElement('a');
@@ -14,103 +9,118 @@ function downloadFile(filename, content, type) {
     document.body.removeChild(a);
 }
 
+// Function to build the OpenSSL config string based on your .cnf file
+function buildOpenSSLConfig(fqdn, sansInput) {
+    let altNames = `DNS.1 = ${fqdn}\n`;
+    let sanCounter = 2;
+
+    if (sansInput) {
+        // Convert comma-separated input into separate DNS entries
+        const dnsArray = sansInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        for (const domain of dnsArray) {
+            altNames += `DNS.${sanCounter} = ${domain}\n`;
+            sanCounter++;
+        }
+    }
+
+    // Template of your original csr.cnf file, injected with dynamic SANs
+    const config = `
+[ req ]
+default_bits      = 2048
+prompt            = no
+default_md        = sha256
+req_extensions    = v3_req
+distinguished_name = dn_req
+
+[ dn_req ]
+C  = US
+ST = MA
+L  = Boston
+O  = Trustees of Boston College
+OU = BC
+emailAddress = itsstaff.ops@bc.edu
+CN = ${fqdn}
+
+[ v3_req ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+${altNames}
+    `;
+    return config.trim();
+}
+
 /**
- * The main function to generate the CSR and Private Key.
+ * The main function to generate the CSR and Private Key using OpenSSL Wasm.
  */
-function generateCSR() {
-    // Get status element and display initial message
+async function generateCSR() {
     const statusElement = document.getElementById('status');
-    statusElement.textContent = "Processing... Generating 2048-bit RSA key (this may take a few seconds).";
+    statusElement.textContent = "Loading OpenSSL Wasm and Generating Key/CSR...";
     statusElement.style.color = 'orange';
 
-    // Get user inputs
     const fqdn = document.getElementById('fqdn').value.trim();
     const sansInput = document.getElementById('sans').value.trim();
 
-    // Input validation
     if (!fqdn) {
-        statusElement.textContent = "Error: Please enter the Fully Qualified Domain Name (FQDN).";
+        statusElement.textContent = "Error: Please enter the FQDN.";
         statusElement.style.color = 'red';
         return;
     }
 
     try {
-        // Get status element and display initial message
-        statusElement.textContent = "Processing... Generating 2048-bit RSA key (this may take a few seconds).";
-        statusElement.style.color = 'orange';
-
-        // --- 1. Generate RSA Key Pair (Synchronous) ---
-        
-        // This generates the key pair object {prvKey: RSAKey, pubKey: RSAKey}
-        const rsaKeypair = KEYUTIL.generateKeypair('RSA', 2048);
-        
-        // Access the private key (which is an RSAKey object)
-        const privateKeyObj = rsaKeypair.prvKey;
-        
-        // **FIXED:** Get the private key PEM string. KEYUTIL.getPEM is the correct function.
-        // It accepts the RSAKey object and the format string ('PKCS8PRV' for unencrypted).
-        const privateKeyPEM = KEYUTIL.getPEM(privateKeyObj, 'PKCS8PRV');
-        
-        // --- 2. Build Subject DN using Hardcoded Values from CSR cfg ---
-        const subject = [
-            // Hardcoded DN Fields from your csr.cnf
-            { name: 'countryName', value: 'US' },
-            { name: 'stateOrProvinceName', value: 'MA' },
-            { name: 'localityName', value: 'Boston' },
-            { name: 'organizationName', value: 'Trustees of Boston College' },
-            { name: 'organizationalUnitName', value: 'BC' },
-            { name: 'emailAddress', value: 'itsstaff.ops@bc.edu' },
-            { name: 'commonName', value: fqdn }, 
-        ];
-
-        // --- 3. Build Subject Alternative Names (SANs) Extension ---
-        const sanList = [{ dns: fqdn }]; 
-        
-        if (sansInput) {
-            const sansArray = sansInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
-            sansArray.forEach(domain => {
-                sanList.push({ dns: domain });
-            });
+        // Initialize OpenSSL Wasm module
+        // The 'OpenSSL' object is exposed globally by the CDN script in index.html
+        if (typeof OpenSSL === 'undefined') {
+            throw new Error("OpenSSL Wasm library failed to load.");
         }
-
-        const extensions = [
-            { extname: 'subjectAltName', array: sanList }
-        ];
-
-        // --- 4. Create CSR Object ---
-        // We use the same privateKeyObj for both the public key in the CSR and for signing.
-        const csr = new KJUR.asn1.csr.CertificationRequest({
-            subject: subject,
-            extreq: extensions, 
-            sigalg: 'SHA256withRSA',
-            sbjpubkey: privateKeyObj, // The privateKeyObj *is* the RSAKey object
-            privateKey: privateKeyObj // Use the same object for signing
-        });
-
-        // --- 5. Finalize and Get PEM ---
-        const csrPEM = csr.getPEMString();
         
-        // --- 6. Filename Generation ---
+        const openssl = await OpenSSL.load(); // Load the Wasm module
+
+        // 1. Build the dynamic config file content
+        const configContent = buildOpenSSLConfig(fqdn, sansInput);
+        
+        // 2. Define filenames and paths
         const baseName = fqdn.split('.')[0];
         const dateString = new Date().getFullYear();
-        const keyFileName = `${baseName}_${dateString}.key`;
-        const csrFileName = `${baseName}_${dateString}.csr`;
+        const KEY_FILE = `${baseName}_${dateString}.key`;
+        const CSR_FILE = `${baseName}_${dateString}.csr`;
+        const TEMP_CONF = "temp_csr.cnf";
 
-        // --- 7. Download Files ---
-        downloadFile(keyFileName, privateKeyPEM, 'application/x-pem-file');
-        downloadFile(csrFileName, csrPEM, 'application/x-pem-file');
+        // 3. Write config file to Wasm virtual filesystem (VFS)
+        openssl.writeFile(TEMP_CONF, configContent);
+
+        // 4. Execute the OpenSSL command via Wasm
+        const command = [
+            'req', '-new', '-newkey', 'rsa:2048', '-nodes', 
+            '-keyout', KEY_FILE, 
+            '-out', CSR_FILE,
+            '-config', TEMP_CONF
+        ];
+
+        statusElement.textContent = "Executing OpenSSL command and generating files...";
+        
+        // This runs the compiled OpenSSL binary in the browser
+        await openssl.run(command); 
+
+        // 5. Read the generated files from the VFS
+        const privateKeyPEM = openssl.readFile(KEY_FILE);
+        const csrPEM = openssl.readFile(CSR_FILE);
+
+        // 6. Clean up the VFS
+        openssl.unlink(TEMP_CONF);
+        openssl.unlink(KEY_FILE);
+        openssl.unlink(CSR_FILE);
+
+        // 7. Download Files
+        downloadFile(KEY_FILE, privateKeyPEM, 'application/x-pem-file');
+        downloadFile(CSR_FILE, csrPEM, 'application/x-pem-file');
 
         statusElement.textContent = "✅ Success! Key and CSR files downloaded. KEEP THE .KEY FILE SAFE!";
         statusElement.style.color = 'green';
         
     } catch (e) {
-        // ... (error handling) ...
         console.error("CSR Generation Error:", e);
-        if (typeof KJUR === 'undefined' || typeof KEYUTIL === 'undefined') {
-             statusElement.textContent = `CRITICAL ERROR: Cryptography library failed to load. Please try a hard refresh. (Check console for '${e.message}')`;
-        } else {
-            statusElement.textContent = `An error occurred during generation: ${e.message}. Please check the browser console for technical details.`;
-        }
+        statusElement.textContent = `A critical error occurred: ${e.message}. The OpenSSL process failed.`;
         statusElement.style.color = 'red';
     }
 }
