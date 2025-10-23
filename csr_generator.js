@@ -103,8 +103,14 @@ async function generateCSR() {
         const KEY_FILE = `${baseName}_${dateString}.key`;
         const CSR_FILE = `${baseName}_${dateString}.csr`;
 
-        // Download Files
+        // Download 1: Private Key
         downloadFile(KEY_FILE, privateKeyPEM, 'application/x-pem-file');
+        
+        // Add a small delay (100ms) before the second download
+        // This prevents the browser from blocking one download or URL object
+        await new Promise(resolve => setTimeout(resolve, 100)); 
+
+        // Download 2: CSR File
         downloadFile(CSR_FILE, csrPEM, 'application/x-pem-file');
 
         statusElement.textContent = "✅ Success! Key and CSR files downloaded. KEEP THE .KEY FILE SAFE!";
