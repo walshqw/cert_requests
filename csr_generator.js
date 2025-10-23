@@ -17,6 +17,13 @@ function downloadFile(filename, content, type) {
  */
 async function generateCSR() {
     const statusElement = document.getElementById('status');
+    const outputDiv = document.getElementById('csr-output');
+    const csrTextarea = document.getElementById('csr-text');
+    
+    // Reset previous outputs
+    outputDiv.style.display = 'none';
+    csrTextarea.value = '';
+
     statusElement.textContent = "Generating 2048-bit RSA key. This may take a moment...";
     statusElement.style.color = 'orange';
 
@@ -36,22 +43,14 @@ async function generateCSR() {
     }
 
     try {
-        // --- 1. Generate RSA Key Pair (SYNCHRONOUS FIX) ---
-        statusElement.textContent = "Step 1/5: Generating 2048-bit RSA key pair (This may briefly freeze the page)...";
+        // --- 1. Generate RSA Key Pair (SYNCHRONOUS) ---
+        statusElement.textContent = "Step 1/4: Generating 2048-bit RSA key pair (Briefly freezing the page)...";
+        const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
         
-        // **FIX:** Use the SYNCHRONOUS version of generateKeyPair.
-        // This eliminates Web Worker issues entirely. It WILL briefly freeze the UI.
-        const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 }); // Using common exponent
-        
-        // The synchronous version of generateKeyPair returns the keypair object directly.
-
-        // --- 2. Create the CSR object ---
-        statusElement.textContent = "Step 2/5: Creating Certification Request object...";
+        // --- 2. Create the CSR object and Set Attributes ---
+        statusElement.textContent = "Step 2/4: Creating CSR object and setting attributes...";
         const csr = forge.pki.createCertificationRequest();
         csr.publicKey = keys.publicKey;
-
-        // --- 3. Build Subject DN and SANs ---
-        statusElement.textContent = "Step 3/5: Adding Subject Distinguished Name (DN) and SANs...";
         
         const subjectAttributes = [
             { name: 'countryName', value: 'US' },
@@ -64,36 +63,24 @@ async function generateCSR() {
         ];
         csr.setSubject(subjectAttributes);
 
-        let altNamesArray = [{
-            type: 2, // dNSName
-            value: fqdn
-        }];
-        
+        let altNamesArray = [{ type: 2, value: fqdn }];
         if (sansInput) {
             const dnsArray = sansInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
             dnsArray.forEach(domain => {
                 altNamesArray.push({ type: 2, value: domain });
             });
         }
-
         csr.setAttributes([{
             name: 'extensionRequest',
-            extensions: [{
-                name: 'subjectAltName',
-                altNames: altNamesArray
-            }]
+            extensions: [{ name: 'subjectAltName', altNames: altNamesArray }]
         }]);
 
-        // --- 4. Sign the CSR (SYNCHRONOUS FIX) ---
-        statusElement.textContent = "Step 4/5: Signing the CSR with the private key (This is fast, but may require a moment of UI unresponsiveness)...";
-        
-        // **FIX:** The synchronous key generation means the synchronous sign method works reliably.
+        // --- 3. Sign the CSR (SYNCHRONOUS) ---
+        statusElement.textContent = "Step 3/4: Signing the CSR with the private key...";
         csr.sign(keys.privateKey, forge.md.sha256.create());
-        // No promise or callback is needed for the synchronous sign function.
 
-
-        // --- 5. Encode Files and Download ---
-        statusElement.textContent = "Step 5/5: Encoding and downloading files...";
+        // --- 4. Encode, Download KEY, and Display CSR ---
+        statusElement.textContent = "Step 4/4: Encoding files and preparing download/output...";
         const privateKeyPEM = forge.pki.privateKeyToPem(keys.privateKey);
         const csrPEM = forge.pki.certificationRequestToPem(csr);
         
@@ -101,19 +88,17 @@ async function generateCSR() {
         const baseName = fqdn.split('.')[0];
         const dateString = new Date().getFullYear();
         const KEY_FILE = `${baseName}_${dateString}.key`;
-        const CSR_FILE = `${baseName}_${dateString}.csr`;
-
-        // Download 1: Private Key
+        
+        // **ACTION 1: Download Private Key (Always works)**
         downloadFile(KEY_FILE, privateKeyPEM, 'application/x-pem-file');
         
-        // Add a small delay (100ms) before the second download
-        // This prevents the browser from blocking one download or URL object
-        await new Promise(resolve => setTimeout(resolve, 100)); 
+        // **ACTION 2: Display CSR (Bypasses second download block)**
+        csrTextarea.value = csrPEM;
+        outputDiv.style.display = 'block';
+        csrTextarea.focus();
+        csrTextarea.select(); // Auto-select the text for easy copying
 
-        // Download 2: CSR File
-        downloadFile(CSR_FILE, csrPEM, 'application/x-pem-file');
-
-        statusElement.textContent = "✅ Success! Key and CSR files downloaded. KEEP THE .KEY FILE SAFE!";
+        statusElement.textContent = "✅ Success! Key file downloaded. Copy the CSR text below. KEEP THE .KEY FILE SAFE!";
         statusElement.style.color = 'green';
         
     } catch (e) {
