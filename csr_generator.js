@@ -17,12 +17,13 @@ function downloadFile(filename, content, type) {
  */
 async function generateCSR() {
     const statusElement = document.getElementById('status');
-    const outputDiv = document.getElementById('csr-output');
-    const csrTextarea = document.getElementById('csr-text');
+    // NOTE: This now refers to the Key output area, you should update the HTML ID.
+    const outputDiv = document.getElementById('key-output'); 
+    const keyTextarea = document.getElementById('key-text');
     
     // Reset previous outputs
-    outputDiv.style.display = 'none';
-    csrTextarea.value = '';
+    if (outputDiv) outputDiv.style.display = 'none';
+    if (keyTextarea) keyTextarea.value = '';
 
     statusElement.textContent = "Generating 2048-bit RSA key. This may take a moment...";
     statusElement.style.color = 'orange';
@@ -79,7 +80,7 @@ async function generateCSR() {
         statusElement.textContent = "Step 3/4: Signing the CSR with the private key...";
         csr.sign(keys.privateKey, forge.md.sha256.create());
 
-        // --- 4. Encode, Download KEY, and Display CSR ---
+        // --- 4. Encode, Download CSR, and Display Key ---
         statusElement.textContent = "Step 4/4: Encoding files and preparing download/output...";
         const privateKeyPEM = forge.pki.privateKeyToPem(keys.privateKey);
         const csrPEM = forge.pki.certificationRequestToPem(csr);
@@ -87,18 +88,23 @@ async function generateCSR() {
         // Filename Generation
         const baseName = fqdn.split('.')[0];
         const dateString = new Date().getFullYear();
-        const KEY_FILE = `${baseName}_${dateString}.key`;
+        const CSR_FILE = `${baseName}_${dateString}.csr`;
         
-        // **ACTION 1: Download Private Key (Always works)**
-        downloadFile(KEY_FILE, privateKeyPEM, 'application/x-pem-file');
+        // **ACTION 1: Download CSR (Always works)**
+        // The CSR is not sensitive and is safe to download first.
+        downloadFile(CSR_FILE, csrPEM, 'application/x-pem-file');
         
-        // **ACTION 2: Display CSR (Bypasses second download block)**
-        csrTextarea.value = csrPEM;
-        outputDiv.style.display = 'block';
-        csrTextarea.focus();
-        csrTextarea.select(); // Auto-select the text for easy copying
+        // **ACTION 2: Display Private Key (Bypasses second download block)**
+        // The Private Key is displayed for copy/paste, ensuring it isn't lost.
+        if (keyTextarea && outputDiv) {
+            keyTextarea.value = privateKeyPEM;
+            outputDiv.style.display = 'block';
+            keyTextarea.focus();
+            keyTextarea.select(); // Auto-select the text for easy copying
+        }
 
-        statusElement.textContent = "✅ Success! Key file downloaded. Copy the CSR text below. KEEP THE .KEY FILE SAFE!  It should be saved on the server with the certificate and deleted from your computer!";
+
+        statusElement.textContent = "✅ Success! CSR file downloaded. COPY THE PRIVATE KEY BELOW. This key is CRITICAL and MUST be saved securely on the server with the certificate!";
         statusElement.style.color = 'green';
         
     } catch (e) {
